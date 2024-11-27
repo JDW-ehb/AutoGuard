@@ -1,0 +1,5 @@
+Posh-SSH:
+Install-Module -Name Posh-SSH -Force -Scope CurrentUser
+
+dotenv:
+Install-Module -Name dotenv -Force -Scope CurrentUser
