@@ -1,27 +1,25 @@
-# Load environment variables from .env file
-$EnvFilePath = "client.env"
-if (Test-Path $EnvFilePath) {
-    $EnvVars = Get-Content $EnvFilePath | ForEach-Object {
-        $KeyValue = $_ -split "="
-        [PSCustomObject]@{Key = $KeyValue[0].Trim(); Value = $KeyValue[1].Trim()}
-    }
-    foreach ($EnvVar in $EnvVars) {
-        Set-Variable -Name $EnvVar.Key -Value $EnvVar.Value -Scope Script
-    }
+# Load configuration from .psd1 file
+$ConfigFilePath = "config.psd1"  # Path to your .psd1 file
+if (Test-Path $ConfigFilePath) {
+    $Config = Import-PowerShellDataFile -Path $ConfigFilePath
+    $ClientIP = $Config.ClientConfig.ClientIP
+    $ClientUsername = $Config.ClientConfig.ClientUsername
+    $ClientPassword = $Config.ClientConfig.ClientPassword
+    $ServerEndpoint = $Config.ServerConfig.ServerEndpoint
+    $ClientPrivateKey = $Config.ClientConfig.ClientPrivateKey
+    $ServerPublicKey = $Config.ServerConfig.ServerPublicKey
+    $ClientAddress = $Config.ClientConfig.ClientAddress
+    $AllowedIPs = $Config.ClientConfig.AllowedIPs
 } else {
-    Write-Host ".env file not found. Please create it with the required variables." -ForegroundColor Red
+    Write-Host "Configuration file not found at $ConfigFilePath. Please create it with the required settings." -ForegroundColor Red
     exit
 }
 
-# Access environment variables
-$ClientIP = $CLIENT_IP
-$ClientUsername = $CLIENT_USERNAME
-$ClientPassword = $CLIENT_PASSWORD
-$ServerEndpoint = $SERVER_ENDPOINT
-$ClientPrivateKey = $CLIENT_PRIVATE_KEY
-$ServerPublicKey = $SERVER_PUBLIC_KEY
-$ClientAddress = $CLIENT_ADDRESS
-$AllowedIPs = $ALLOWED_IPS
+# Validate that required variables are loaded
+if (-not $ClientIP -or -not $ClientUsername -or -not $ClientPassword -or -not $ServerEndpoint -or -not $ClientPrivateKey -or -not $ServerPublicKey -or -not $ClientAddress -or -not $AllowedIPs) {
+    Write-Host "One or more required variables are missing in the configuration file. Check your .psd1 file." -ForegroundColor Red
+    exit
+}
 
 # Establish SSH connection to the client VM
 Write-Host "Establishing SSH connection to $ClientIP..." -ForegroundColor Cyan

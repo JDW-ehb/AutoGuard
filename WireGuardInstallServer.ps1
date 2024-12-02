@@ -1,26 +1,17 @@
-# Load environment variables from .env file
-$EnvFilePath = "serv.env"  # Path to your .env file
-if (Test-Path $EnvFilePath) {
-    $EnvVars = Get-Content $EnvFilePath | ForEach-Object {
-        $KeyValue = $_ -split "="
-        [PSCustomObject]@{Key = $KeyValue[0].Trim(); Value = $KeyValue[1].Trim()}
-    }
-    foreach ($EnvVar in $EnvVars) {
-        Set-Variable -Name $EnvVar.Key -Value $EnvVar.Value -Scope Script
-    }
+$ConfigFilePath = "config.psd1"  # Path to your .psd1 file
+if (Test-Path $ConfigFilePath) {
+    $Config = Import-PowerShellDataFile -Path $ConfigFilePath
+    $ServerIP = $Config.ServerConfig.ServerIP
+    $Username = $Config.ServerConfig.Username
+    $Password = $Config.ServerConfig.Password
 } else {
-    Write-Host ".env file not found. Please create it with the required variables." -ForegroundColor Red
+    Write-Host "Configuration file not found at $ConfigFilePath. Please create it with the required settings." -ForegroundColor Red
     exit
 }
 
-# Access environment variables
-$ServerIP = $SERVER_IP
-$Username = $USERNAME
-$Password = $PASSWORD
-
 # Validate that required variables are loaded
 if (-not $ServerIP -or -not $Username -or -not $Password) {
-    Write-Host "One or more environment variables are missing. Check your .env file." -ForegroundColor Red
+    Write-Host "One or more required variables are missing in the configuration file. Check your .psd1 file." -ForegroundColor Red
     exit
 }
 
@@ -31,6 +22,7 @@ $SecurePassword = ConvertTo-SecureString $Password -AsPlainText -Force
 if (!(Get-Module -ListAvailable -Name Posh-SSH)) {
     Install-Module -Name Posh-SSH -Force -Scope CurrentUser
 }
+
 
 # Establish SSH session
 Write-Host "Establishing SSH connection to $ServerIP..." -ForegroundColor Cyan
@@ -181,7 +173,7 @@ if ($Result.ExitStatus -ne 0) {
     $Result = Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $InstallTunnelCommand
     Write-Host "Install Tunnel Output: $($Result.Output)" -ForegroundColor Yellow
   
-    if ($Result.ExitStatus -ne 0 -or $Result.Output -eq $null) {
+    if ($Result.ExitStatus -ne 0 -or $null -eq $Result.Output) {
         Write-Host "Failed to install WireGuard tunnel service. Check the configuration file and permissions." -ForegroundColor Red
         exit
     }
