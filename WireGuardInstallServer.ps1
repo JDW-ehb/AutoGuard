@@ -1,5 +1,5 @@
 # Load environment variables from .env file
-$EnvFilePath = ".env"  # Path to your .env file
+$EnvFilePath = "serv.env"  # Path to your .env file
 if (Test-Path $EnvFilePath) {
     $EnvVars = Get-Content $EnvFilePath | ForEach-Object {
         $KeyValue = $_ -split "="
@@ -87,8 +87,8 @@ if ($SSHSession) {
     Write-Host "Configuring WireGuard..." -ForegroundColor Cyan
 
     # Step 1: Define WireGuard configuration
-    Write-Host "Defining WireGuard configuration..." -ForegroundColor Cyan
-    $WireGuardConfig = @"
+Write-Host "Defining WireGuard configuration..." -ForegroundColor Cyan
+$WireGuardConfig = @"
 [Interface]
 PrivateKey = cPsD6wexojPwpXgvPcxjYVsscsGt5ypx+kffJR/GB04=
 Address = 10.99.0.1/24
@@ -96,10 +96,23 @@ ListenPort = 51820
 
 [Peer]
 PublicKey = 6cP9blLr039bmqawtd/K4oI5+Fs2ABA3hcwIDdcYWxo=
-AllowedIPs = 10.99.0.2/32
+AllowedIPs = 10.99.0.2/32, 192.168.2.128/32
 "@
-    Write-Host "WireGuard Configuration:" -ForegroundColor Yellow
-    Write-Host $WireGuardConfig
+Write-Host "WireGuard Configuration:" -ForegroundColor Yellow
+Write-Host $WireGuardConfig
+
+# Enable IP forwarding on the server
+Write-Host "Enabling IP forwarding on the server..." -ForegroundColor Cyan
+$EnableIPForwardingCommand = "reg add HKLM\SYSTEM\CurrentControlSet\Services\Tcpip\Parameters /v IPEnableRouter /t REG_DWORD /d 1 /f"
+$Result = Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $EnableIPForwardingCommand
+Write-Host "IP Forwarding Enabled Output: $($Result.Output)" -ForegroundColor Yellow
+
+# Add static route to the client network
+Write-Host "Adding a static route to the client network on the server..." -ForegroundColor Cyan
+$AddRouteCommand = "route add 192.168.2.0 mask 255.255.255.0 10.99.0.2"
+$Result = Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $AddRouteCommand
+Write-Host "Route Added Output: $($Result.Output)" -ForegroundColor Yellow
+
 
     # Step 2: Create the WireGuard configuration directory
     Write-Host "Creating WireGuard configuration directory..." -ForegroundColor Cyan
@@ -162,27 +175,17 @@ if ($Result.ExitStatus -ne 0) {
     $Result = Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $VerifyServiceCommand
     Write-Host "Service Status Output: $($Result.Output)" -ForegroundColor Yellow
 
-    # # Step 6: Install WireGuard tunnel as a Windows service
-    # Write-Host "Installing WireGuard tunnel as a Windows service..." -ForegroundColor Cyan
-    # $InstallTunnelCommand = '& "C:\Program Files\WireGuard\wireguard.exe" /installtunnelservice "C:\ProgramData\WireGuard\wg0.conf"'
-    # $Result = Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $InstallTunnelCommand
-    # Write-Host "Install Tunnel Output: $($Result.Output)" -ForegroundColor Yellow
-    
-    # if ($Result.ExitStatus -ne 0 -or $Result.Output -eq $null) {
-    #     Write-Host "Failed to install WireGuard tunnel service. Check the configuration file and permissions." -ForegroundColor Red
-    #     exit
-    # }
+    # Step 6: Install WireGuard tunnel as a Windows service
+    Write-Host "Installing WireGuard tunnel as a Windows service..." -ForegroundColor Cyan
+    $InstallTunnelCommand = '& "C:\Program Files\WireGuard\wireguard.exe" /installtunnelservice "C:\ProgramData\WireGuard\wg0.conf"'
+    $Result = Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $InstallTunnelCommand
+    Write-Host "Install Tunnel Output: $($Result.Output)" -ForegroundColor Yellow
+  
+    if ($Result.ExitStatus -ne 0 -or $Result.Output -eq $null) {
+        Write-Host "Failed to install WireGuard tunnel service. Check the configuration file and permissions." -ForegroundColor Red
+        exit
+    }
 
-    # # Step 7: Verify the installed service
-    # Write-Host "Verifying the WireGuard tunnel service..." -ForegroundColor Cyan
-    # $VerifyTunnelServiceCommand = "Get-Service -Name WireGuardTunnel$wg0 | Select-Object -Property Status"
-    # $Result = Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $VerifyTunnelServiceCommand
-    # Write-Host "Tunnel Service Status Output: $($Result.Output)" -ForegroundColor Yellow
-    # if ($Result.Output -notcontains "Running") {
-    #     Write-Host "WireGuard tunnel service verification failed or service is not running." -ForegroundColor Red
-    #     exit
-    # }
-    # Write-Host "WireGuard tunnel service installed and running successfully." -ForegroundColor Green
 
     # Close the SSH session
     Remove-SSHSession -SessionId $SSHSession.SessionId

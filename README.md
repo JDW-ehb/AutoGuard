@@ -1,0 +1,1 @@
+for this you have to make so that you can ssh into the clients and servers you want to configure and also make it so that your commands your passing true ssh would be in powershell
