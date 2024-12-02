@@ -60,11 +60,11 @@ if ($SSHSession) {
     Write-Host "Defining WireGuard configuration..." -ForegroundColor Cyan
     $WireGuardConfig = @"
 [Interface]
-PrivateKey = $ClientPrivateKey
+PrivateKey = cPsD6wexojPwpXgvPcxjYVsscsGt5ypx+kffJR/GB04=
 Address = $ClientAddress
 
 [Peer]
-PublicKey = $ServerPublicKey
+PublicKey = 6cP9blLr039bmqawtd/K4oI5+Fs2ABA3hcwIDdcYWxo=
 Endpoint = $ServerEndpoint
 AllowedIPs = $AllowedIPs
 PersistentKeepalive = 25
