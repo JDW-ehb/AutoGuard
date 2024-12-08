@@ -63,11 +63,11 @@ function Configure-WireGuard {
 
     $WireGuardConfig = @"
 [Interface]
-PrivateKey = $ClientPrivateKey
+PrivateKey = GKkG9wZVkAKxvEDMpQIzX6DadybpgTtjtxhvWKo8pGo=
 Address = $ClientAddress
 
 [Peer]
-PublicKey = $ServerPublicKey
+PublicKey = mSGaz5q/q4x8mKld2SXV5bPxZC13RSUrcynMf91WRxY=
 Endpoint = $ServerEndpoint
 AllowedIPs = $AllowedIPs
 PersistentKeepalive = 25
@@ -93,39 +93,29 @@ function Start-WireGuardTunnel {
     param (
         $SSHSession
     )
-    Write-Host "Installing and starting WireGuard tunnel service..." -ForegroundColor Cyan
 
-    # Install the WireGuard tunnel service
-    $InstallTunnelCommand = "& 'C:\Program Files\WireGuard\wireguard.exe' /installtunnelservice 'C:\ProgramData\WireGuard\wg0.conf'"
+    Write-Host "Installing WireGuard tunnel as a Windows service..." -ForegroundColor Cyan
+    $InstallTunnelCommand = '& "C:\Program Files\WireGuard\wireguard.exe" /installtunnelservice "C:\ProgramData\WireGuard\wg0.conf"'
     $Result = Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $InstallTunnelCommand
     Write-Host "Install Tunnel Output: $($Result.Output)" -ForegroundColor Yellow
 
-    if ($Result.ExitStatus -ne 0) {
+    if ($Result.ExitStatus -ne 0 -or $null -eq $Result.Output) {
         Write-Host "Failed to install WireGuard tunnel service. Check the configuration file and permissions." -ForegroundColor Red
         exit
     }
 
-    # Start the WireGuard tunnel service
-    $StartTunnelCommand = "Start-Service -Name WireGuardTunnel$wg0"
-    $Result = Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $StartTunnelCommand
-    Write-Host "Start Tunnel Service Output: $($Result.Output)" -ForegroundColor Yellow
-
-    if ($Result.ExitStatus -ne 0) {
-        Write-Host "Failed to start WireGuard tunnel service. Check the service status." -ForegroundColor Red
-        exit
-    }
-
-    # Verify the tunnel service is running
-    $VerifyTunnelCommand = "Get-Service -Name WireGuardTunnel$wg0 | Select-Object -ExpandProperty Status"
+    # Verify if the tunnel is active
+    Write-Host "Verifying if WireGuard tunnel is active..." -ForegroundColor Cyan
+    $VerifyTunnelCommand = 'Get-Service -Name WireGuardTunnel$wg0 | Select-Object -ExpandProperty Status'
     $Result = Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $VerifyTunnelCommand
-    Write-Host "Tunnel Service Status: $($Result.Output)" -ForegroundColor Yellow
+    Write-Host "Tunnel Status: $($Result.Output)" -ForegroundColor Yellow
 
     if ($Result.Output -notmatch "Running") {
-        Write-Host "WireGuard tunnel service is not running. Please check the service configuration." -ForegroundColor Red
+        Write-Host "WireGuard tunnel is not active. Please check the configuration." -ForegroundColor Red
         exit
     }
 
-    Write-Host "WireGuard tunnel service is running successfully." -ForegroundColor Green
+    Write-Host "WireGuard tunnel is active." -ForegroundColor Green
 }
 
 

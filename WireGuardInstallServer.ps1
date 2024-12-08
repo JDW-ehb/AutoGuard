@@ -77,12 +77,12 @@ function Configure-WireGuard {
     $WriteConfigCommand = @"
 @'
 [Interface]
-PrivateKey = cPsD6wexojPwpXgvPcxjYVsscsGt5ypx+kffJR/GB04=
+PrivateKey = EByRIuougCQfrXI8iDhd6NIdcPdrbhvGQ69nOC7cSX0=
 Address = 10.99.0.1/24
 ListenPort = 51820
 
 [Peer]
-PublicKey = 6cP9blLr039bmqawtd/K4oI5+Fs2ABA3hcwIDdcYWxo=
+PublicKey = no6SVRcOvfpmHn6Ne5ESX8FQ2cppKvxB5iiGY/tTAWg=
 AllowedIPs = 10.99.0.2/32
 '@ | Set-Content -Path 'C:\ProgramData\WireGuard\wg0.conf' -Force
 "@
