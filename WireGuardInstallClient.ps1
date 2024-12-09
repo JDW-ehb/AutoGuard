@@ -57,17 +57,17 @@ function Configure-WireGuard {
         [string]$ServerEndpoint,
         [string]$AllowedIPs,
         [string]$ClientPrivateKey,
-        [string]$ServerPublicKey
+        [string]$ClientPublicKey
     )
     Write-Host "Defining and writing WireGuard configuration..." -ForegroundColor Cyan
 
     $WireGuardConfig = @"
 [Interface]
-PrivateKey = GKkG9wZVkAKxvEDMpQIzX6DadybpgTtjtxhvWKo8pGo=
+PrivateKey = $ClientPrivateKey
 Address = $ClientAddress
 
 [Peer]
-PublicKey = mSGaz5q/q4x8mKld2SXV5bPxZC13RSUrcynMf91WRxY=
+PublicKey = $ClientPublicKey
 Endpoint = $ServerEndpoint
 AllowedIPs = $AllowedIPs
 PersistentKeepalive = 25
@@ -128,7 +128,7 @@ $ClientUsername = $Config.ClientConfig.ClientUsername
 $ClientPassword = $Config.ClientConfig.ClientPassword
 $ServerEndpoint = $Config.ServerConfig.ServerEndpoint
 $ClientPrivateKey = $Config.ClientConfig.ClientPrivateKey
-$ServerPublicKey = $Config.ServerConfig.ServerPublicKey
+$ClientPublicKey = $Config.ClientConfig.ClientPublicKey
 $ClientAddress = $Config.ClientConfig.ClientAddress
 $AllowedIPs = $Config.ClientConfig.AllowedIPs
 
@@ -144,7 +144,7 @@ if ($SSHSession) {
                         -ServerEndpoint $ServerEndpoint `
                         -AllowedIPs $AllowedIPs `
                         -ClientPrivateKey $ClientPrivateKey `
-                        -ServerPublicKey $ServerPublicKey
+                        -ClientPublicKey $ClientPublicKey
 
     Start-WireGuardTunnel -SSHSession $SSHSession
     Remove-SSHSession -SessionId $SSHSession.SessionId
