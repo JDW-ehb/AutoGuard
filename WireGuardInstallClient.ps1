@@ -29,15 +29,11 @@ function Establish-SSHConnection {
 }
 
 function Check-WireGuardInstallation {
-    param (
-        $SSHSession
-    )
-    $CheckInstallCommand = "if (Test-Path 'C:\Program Files\WireGuard\wireguard.exe') { 'Installed' } else { 'Not Installed' }"
+    param ($SSHSession)
+    $CheckInstallCommand = "Get-Command wireguard.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source"
     $Result = Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $CheckInstallCommand
-    Write-Host "WireGuard Check Output: $($Result.Output)" -ForegroundColor Yellow
-    return $Result.Output -contains "Installed"
+    return -not [string]::IsNullOrEmpty($Result.Output)
 }
-
 function Install-WireGuard {
     param (
         $SSHSession
