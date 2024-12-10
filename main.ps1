@@ -38,19 +38,32 @@ function Establish-SSHConnection {
 
 function Check-WireGuardInstallation {
     param ($SSHSession)
-    $CheckInstallCommand = "Get-Command wireguard.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source"
-    $Result = Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $CheckInstallCommand
-    return -not [string]::IsNullOrEmpty($Result.Output)
+    try {
+        Write-Host "Checking if WireGuard is installed..." -ForegroundColor Cyan
+        $CheckInstallCommand = "Get-Command wireguard.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source"
+        $Result = Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $CheckInstallCommand
+        return -not [string]::IsNullOrEmpty($Result.Output)
+    } catch {
+        Write-Host "Failed to check WireGuard installation: $_" -ForegroundColor Red
+        return $false
+    }
 }
 
 function Install-WireGuard {
     param ($SSHSession)
-    Write-Host "Installing WireGuard..." -ForegroundColor Cyan
-    $DownloadCommand = "Invoke-WebRequest -Uri 'https://download.wireguard.com/windows-client/wireguard-installer.exe' -OutFile 'C:\WireGuard-Installer.exe'"
-    Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $DownloadCommand
+    try {
+        Write-Host "Installing WireGuard..." -ForegroundColor Cyan
+        $DownloadCommand = "Invoke-WebRequest -Uri 'https://download.wireguard.com/windows-client/wireguard-installer.exe' -OutFile 'C:\WireGuard-Installer.exe'"
+        Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $DownloadCommand
 
-    $InstallCommand = "Start-Process -FilePath 'C:\WireGuard-Installer.exe' -ArgumentList '/S' -Wait"
-    Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $InstallCommand
+        $InstallCommand = "Start-Process -FilePath 'C:\WireGuard-Installer.exe' -ArgumentList '/S' -Wait"
+        Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $InstallCommand
+
+        Write-Host "WireGuard installation completed successfully." -ForegroundColor Green
+    } catch {
+        Write-Host "Failed to install WireGuard: $_" -ForegroundColor Red
+        exit
+    }
 }
 
 function Configure-WireGuard {
@@ -58,23 +71,50 @@ function Configure-WireGuard {
         $SSHSession,
         [string]$ConfigContent
     )
-    Write-Host "Writing WireGuard configuration..." -ForegroundColor Cyan
-    Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command "New-Item -Path 'C:\ProgramData\WireGuard' -ItemType Directory -Force"
-    Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command "Set-Content -Path 'C:\ProgramData\WireGuard\wg0.conf' -Value @'
+    try {
+        Write-Host "Writing WireGuard configuration..." -ForegroundColor Cyan
+        Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command "New-Item -Path 'C:\ProgramData\WireGuard' -ItemType Directory -Force"
+        Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command "Set-Content -Path 'C:\ProgramData\WireGuard\wg0.conf' -Value @'
 $ConfigContent
 '@ -Force"
+
+        Write-Host "WireGuard configuration written successfully." -ForegroundColor Green
+    } catch {
+        Write-Host "Failed to configure WireGuard: $_" -ForegroundColor Red
+        exit
+    }
 }
 
 function Start-WireGuardTunnel {
     param ($SSHSession)
-    Write-Host "Starting WireGuard tunnel..." -ForegroundColor Cyan
-    $InstallTunnelCommand = '& "C:\Program Files\WireGuard\wireguard.exe" /installtunnelservice "C:\ProgramData\WireGuard\wg0.conf"'
-    Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $InstallTunnelCommand
+    try {
+        Write-Host "Starting WireGuard tunnel..." -ForegroundColor Cyan
+        $InstallTunnelCommand = '& "C:\Program Files\WireGuard\wireguard.exe" /installtunnelservice "C:\ProgramData\WireGuard\wg0.conf"'
+        Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $InstallTunnelCommand
+
+        Write-Host "WireGuard tunnel started successfully." -ForegroundColor Green
+    } catch {
+        Write-Host "Failed to start WireGuard tunnel: $_" -ForegroundColor Red
+        exit
+    }
 }
 
 # Import Configuration
-$ConfigFilePath = "config.psd1"
-$Config = Import-Configuration -ConfigFilePath $ConfigFilePath
+try {
+    $ConfigFilePath = "config.psd1"
+    $Config = Import-Configuration -ConfigFilePath $ConfigFilePath
+} catch {
+    Write-Host "Failed to import configuration file: $_" -ForegroundColor Red
+    exit
+}
+
+# Check for Empty Configurations
+if (-not $Config.ServerConfigs) {
+    Write-Host "No server configurations found in the config file." -ForegroundColor Yellow
+}
+if (-not $Config.ClientConfigs) {
+    Write-Host "No client configurations found in the config file." -ForegroundColor Yellow
+}
 
 # Loop Through Servers
 foreach ($Server in $Config.ServerConfigs) {
@@ -91,19 +131,21 @@ PublicKey = $($Server.ServerPublicKey)
 AllowedIPs = $($Server.AllowedIPs)
 "@
 
-    $ServerSession = Establish-SSHConnection -IP $Server.ServerIP -Username $Server.Username -Password $Server.Password
-    if ($ServerSession) {
-        try {
-            if (-not (Check-WireGuardInstallation -SSHSession $ServerSession)) {
-                Install-WireGuard -SSHSession $ServerSession
-            }
-            Configure-WireGuard -SSHSession $ServerSession -ConfigContent $ServerConfigContent
-            Start-WireGuardTunnel -SSHSession $ServerSession
-        } catch {
-            Write-Host "Error configuring WireGuard Server: $($Server.ServerName) - $_" -ForegroundColor Red
-        } finally {
-            Remove-SSHSession -SessionId $ServerSession.SessionId
+    try {
+        $ServerSession = Establish-SSHConnection -IP $Server.ServerIP -Username $Server.Username -Password $Server.Password
+        if (-not $ServerSession) {
+            throw "Failed to establish SSH session to $($Server.ServerName) at $($Server.ServerIP)"
         }
+
+        if (-not (Check-WireGuardInstallation -SSHSession $ServerSession)) {
+            Install-WireGuard -SSHSession $ServerSession
+        }
+        Configure-WireGuard -SSHSession $ServerSession -ConfigContent $ServerConfigContent
+        Start-WireGuardTunnel -SSHSession $ServerSession
+    } catch {
+        Write-Host "Error configuring WireGuard Server: $($Server.ServerName) - $_" -ForegroundColor Red
+    } finally {
+        if ($ServerSession) { Remove-SSHSession -SessionId $ServerSession.SessionId }
     }
 }
 
@@ -123,19 +165,21 @@ AllowedIPs = $($Client.AllowedIPs)
 PersistentKeepalive = 25
 "@
 
-    $ClientSession = Establish-SSHConnection -IP $Client.ClientIP -Username $Client.ClientUsername -Password $Client.ClientPassword
-    if ($ClientSession) {
-        try {
-            if (-not (Check-WireGuardInstallation -SSHSession $ClientSession)) {
-                Install-WireGuard -SSHSession $ClientSession
-            }
-            Configure-WireGuard -SSHSession $ClientSession -ConfigContent $ClientConfigContent
-            Start-WireGuardTunnel -SSHSession $ClientSession
-        } catch {
-            Write-Host "Error configuring WireGuard Client: $($Client.ClientName) - $_" -ForegroundColor Red
-        } finally {
-            Remove-SSHSession -SessionId $ClientSession.SessionId
+    try {
+        $ClientSession = Establish-SSHConnection -IP $Client.ClientIP -Username $Client.ClientUsername -Password $Client.ClientPassword
+        if (-not $ClientSession) {
+            throw "Failed to establish SSH session to $($Client.ClientName) at $($Client.ClientIP)"
         }
+
+        if (-not (Check-WireGuardInstallation -SSHSession $ClientSession)) {
+            Install-WireGuard -SSHSession $ClientSession
+        }
+        Configure-WireGuard -SSHSession $ClientSession -ConfigContent $ClientConfigContent
+        Start-WireGuardTunnel -SSHSession $ClientSession
+    } catch {
+        Write-Host "Error configuring WireGuard Client: $($Client.ClientName) - $_" -ForegroundColor Red
+    } finally {
+        if ($ClientSession) { Remove-SSHSession -SessionId $ClientSession.SessionId }
     }
 }
 
