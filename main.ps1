@@ -40,7 +40,7 @@ function Check-WireGuardInstallation {
     param ($SSHSession)
     try {
         Write-Host "Checking if WireGuard is installed..." -ForegroundColor Cyan
-        $CheckInstallCommand = "Get-Command wireguard.exe -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Source"
+        $CheckInstallCommand = "Get-Command wireguard.exe | Select-Object -ExpandProperty Source"
         $Result = Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $CheckInstallCommand
         return -not [string]::IsNullOrEmpty($Result.Output)
     } catch {
@@ -75,8 +75,8 @@ function Configure-WireGuard {
         Write-Host "Writing WireGuard configuration..." -ForegroundColor Cyan
         Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command "New-Item -Path 'C:\ProgramData\WireGuard' -ItemType Directory -Force"
         Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command "Set-Content -Path 'C:\ProgramData\WireGuard\wg0.conf' -Value @'
-$ConfigContent
-'@ -Force"
+        $ConfigContent
+        '@ -Force"
 
         Write-Host "WireGuard configuration written successfully." -ForegroundColor Green
     } catch {
