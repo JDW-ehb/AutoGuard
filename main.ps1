@@ -71,20 +71,12 @@ function Configure-WireGuard {
         $SSHSession,
         [string]$ConfigContent
     )
-    try {
-        Write-Host "Writing WireGuard configuration..." -ForegroundColor Cyan
-        Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command "New-Item -Path 'C:\ProgramData\WireGuard' -ItemType Directory -Force"
-        Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command "Set-Content -Path 'C:\ProgramData\WireGuard\wg0.conf' -Value @'
-        $ConfigContent
-        '@ -Force"
-
-        Write-Host "WireGuard configuration written successfully." -ForegroundColor Green
-    } catch {
-        Write-Host "Failed to configure WireGuard: $_" -ForegroundColor Red
-        exit
-    }
+    Write-Host "Writing WireGuard configuration..." -ForegroundColor Cyan
+    Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command "New-Item -Path 'C:\ProgramData\WireGuard' -ItemType Directory -Force"
+    Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command "Set-Content -Path 'C:\ProgramData\WireGuard\wg0.conf' -Value @'
+$ConfigContent
+'@ -Force"
 }
-
 function Start-WireGuardTunnel {
     param ($SSHSession)
     try {
