@@ -101,14 +101,28 @@ function Start-WireGuardTunnel {
 
 function Remove-SSHSession {
     param ([int]$SessionId)
+
     try {
-        Write-Host "Closing SSH session with ID: $SessionId..." -ForegroundColor Yellow
-        Remove-SSHSession -SessionId $SessionId
-        Write-Host "SSH session closed." -ForegroundColor Green
+        # Check if the session exists before attempting to close
+        $ExistingSession = Get-SSHSession | Where-Object { $_.SessionId -eq $SessionId }
+
+        if ($ExistingSession) {
+            Write-Output "Closing SSH session with ID: $SessionId..."
+            Remove-SSHSession -SessionId $SessionId -ErrorAction Stop
+            Write-Output "SSH session with ID: $SessionId closed successfully."
+        } else {
+            Write-Output "SSH session with ID: $SessionId already closed or does not exist."
+        }
     } catch {
-        Write-Host "Failed to close SSH session: $_" -ForegroundColor Red
+        Write-Warning "Failed to close SSH session with ID: $SessionId - $_"
+    } finally {
+        # Ensure the session variable is reset
+        $global:ServerSession = $null
+        $global:ClientSession = $null
     }
 }
+
+
 
 function Deploy-WireGuardServer {
     param ($Server)
@@ -135,7 +149,10 @@ AllowedIPs = $($Server.AllowedIPs)
         Configure-WireGuard -SSHSession $ServerSession -ConfigContent $ServerConfigContent
         Start-WireGuardTunnel -SSHSession $ServerSession
     } finally {
-        if ($ServerSession) { Remove-SSHSession -SessionId $ServerSession.SessionId }
+        if ($ServerSession) {
+            Remove-SSHSession -SessionId $ServerSession.SessionId
+            $ServerSession = $null
+        }
     }
 }
 
@@ -143,6 +160,7 @@ function Deploy-WireGuardClient {
     param ($Client)
     Write-Host "`n--- Configuring WireGuard Client: $($Client.ClientName) ---`n" -ForegroundColor Cyan
 
+    $ClientSession = $null
     $ClientConfigContent = @"
 [Interface]
 PrivateKey = $($Client.ClientPrivateKey)
@@ -165,9 +183,13 @@ PersistentKeepalive = 25
         Configure-WireGuard -SSHSession $ClientSession -ConfigContent $ClientConfigContent
         Start-WireGuardTunnel -SSHSession $ClientSession
     } finally {
-        if ($ClientSession) { Remove-SSHSession -SessionId $ClientSession.SessionId }
+        # Safely close the session
+        if ($ClientSession -and $ClientSession.SessionId) {
+            Remove-SSHSession -SessionId $ClientSession.SessionId
+        }
     }
 }
+
 
 # Export all relevant functions
 Export-ModuleMember -Function `
