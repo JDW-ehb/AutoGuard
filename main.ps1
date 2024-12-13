@@ -23,9 +23,6 @@ try {
     exit
 }
 
-# List Module Commands
-Get-Command -Module WindowsDeployments | Out-File -FilePath $LogFile -Append
-
 # Import Configuration
 try {
     $ConfigFilePath = "config.psd1"

@@ -123,7 +123,6 @@ function Remove-SSHSession {
 }
 
 
-
 function Deploy-WireGuardServer {
     param ($Server)
     Write-Host "`n--- Configuring WireGuard Server: $($Server.ServerName) ---`n" -ForegroundColor Green
