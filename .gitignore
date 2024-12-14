@@ -1,5 +1,4 @@
 .env*
-*.psd1*
-.psd1*
+config.psd1
 config.psd1
 logs/*

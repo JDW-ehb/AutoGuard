@@ -99,27 +99,15 @@ function Start-WireGuardTunnel {
     }
 }
 
-function Remove-SSHSession {
+function Remove-Session {
     param ([int]$SessionId)
-
     try {
-        # Check if the session exists before attempting to close
-        $ExistingSession = Get-SSHSession | Where-Object { $_.SessionId -eq $SessionId }
-
-        if ($ExistingSession) {
-            Write-Output "Closing SSH session with ID: $SessionId..."
-            Remove-SSHSession -SessionId $SessionId -ErrorAction Stop
-            Write-Output "SSH session with ID: $SessionId closed successfully."
-        } else {
-            Write-Output "SSH session with ID: $SessionId already closed or does not exist."
+        Write-Host "Closing SSH session with ID: $SessionId..." -ForegroundColor Yellow
+        Remove-SSHSession -SessionId $SessionId
+        Write-Host "SSH session closed." -ForegroundColor Green
+        } catch {
+        Write-Host "Failed to close SSH session: $_" -ForegroundColor Red
         }
-    } catch {
-        Write-Warning "Failed to close SSH session with ID: $SessionId - $_"
-    } finally {
-        # Ensure the session variable is reset
-        $global:ServerSession = $null
-        $global:ClientSession = $null
-    }
 }
 
 
@@ -149,7 +137,7 @@ AllowedIPs = $($Server.AllowedIPs)
         Start-WireGuardTunnel -SSHSession $ServerSession
     } finally {
         if ($ServerSession) {
-            Remove-SSHSession -SessionId $ServerSession.SessionId
+            Remove-Session -SessionId $ServerSession.SessionId
             $ServerSession = $null
         }
     }
@@ -184,7 +172,7 @@ PersistentKeepalive = 25
     } finally {
         # Safely close the session
         if ($ClientSession -and $ClientSession.SessionId) {
-            Remove-SSHSession -SessionId $ClientSession.SessionId
+            Remove-Session -SessionId $ClientSession.SessionId
         }
     }
 }
@@ -198,6 +186,6 @@ Export-ModuleMember -Function `
     Install-WireGuard, `
     Configure-WireGuard, `
     Start-WireGuardTunnel, `
-    Remove-SSHSession, `
+    Remove-Session, `
     Deploy-WireGuardServer, `
     Deploy-WireGuardClient
