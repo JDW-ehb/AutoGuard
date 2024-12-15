@@ -5,66 +5,103 @@ if (-not (Test-Path -Path $LogDirectory)) {
 }
 $LogFile = "$LogDirectory\WireGuardDeployment_$(Get-Date -Format 'yyyy-MM-dd_HH-mm-ss').log"
 
-# Start Transcript (Logging)
+# Start Logging
 Start-Transcript -Path $LogFile -Append
-
-# Log Script Execution Start
 Write-Output "========================================="
 Write-Output "WireGuard Deployment Log"
 Write-Output "Execution Start Time: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
 Write-Output "========================================="
 
-# Import the module
+# Import Modules
 try {
+    Import-Module -Name ".\modules\SSH-Session\SSH-Session.psm1" -Force
     Import-Module -Name ".\modules\Windows\WindowsDeployments.psm1" -Force
-    Write-Output "Module 'WindowsDeployments' successfully imported."
+    Import-Module -Name ".\modules\OSDetection\OSDetection.psm1" -Force
+    Write-Output "Modules successfully imported."
 } catch {
-    Write-Error "Failed to import module: $_"
+    Write-Error "Failed to import modules: $_"
     exit
 }
 
 # Import Configuration
 try {
     $ConfigFilePath = "config.psd1"
-    $Config = Import-Configuration -ConfigFilePath $ConfigFilePath
+    $Config = Import-PowerShellDataFile -Path $ConfigFilePath
     Write-Output "Configuration file imported successfully."
 } catch {
     Write-Error "Failed to import configuration file: $_"
     exit
 }
 
-# Check for Empty Configurations
-if (-not $Config.ServerConfigs) { 
-    Write-Warning "No server configurations found." 
-}
-if (-not $Config.ClientConfigs) { 
-    Write-Warning "No client configurations found." 
-}
-
 # Deploy Servers
 foreach ($Server in $Config.ServerConfigs) {
+    Write-Output "`n--- Starting deployment for Server: $($Server.ServerName) ---"
+    $Session = $null
     try {
-        Write-Output "`n--- Starting deployment for Server: $($Server.ServerName) ---"
-        Deploy-WireGuardServer -Server $Server
-        Write-Output "Server $($Server.ServerName) deployed successfully."
+        # Establish SSH session
+        Write-Output "Establishing SSH session for Server: $($Server.ServerName)..."
+        $Session = Establish-SSHConnection -IP $Server.ServerIP -Username $Server.Username -Password $Server.Password
+
+        if (-not $Session) {
+            Write-Error "Failed to establish SSH session for Server: $($Server.ServerName). Skipping..."
+            continue
+        }
+
+        # OS Detection
+        Write-Output "Detecting operating system for Server: $($Server.ServerName)..."
+        if (Test-WindowsOperatingSystem -SSHSession $Session) {
+            Write-Output "Operating System: Windows. Proceeding with deployment..."
+            Deploy-WireGuardServer -Server $Server -SSHSession $Session
+            Write-Output "Server $($Server.ServerName) deployed successfully."
+        } else {
+            Write-Warning "Server $($Server.ServerName) is not a Windows system. Skipping..."
+        }
     } catch {
         Write-Error "Error deploying server $($Server.ServerName): $_"
+    } finally {
+        if ($Session -and $Session.SessionId) {
+            Write-Output "Closing SSH session for Server: $($Server.ServerName)..."
+            Remove-Session -SessionId $Session.SessionId
+        }
     }
 }
 
 # Deploy Clients
 foreach ($Client in $Config.ClientConfigs) {
+    Write-Output "`n--- Starting deployment for Client: $($Client.ClientName) ---"
+    $Session = $null
     try {
-        Write-Output "`n--- Starting deployment for Client: $($Client.ClientName) ---"
-        Deploy-WireGuardClient -Client $Client
-        Write-Output "Client $($Client.ClientName) deployed successfully."
+        # Establish SSH session
+        Write-Output "Establishing SSH session for Client: $($Client.ClientName)..."
+        $Session = Establish-SSHConnection -IP $Client.ClientIP -Username $Client.Username -Password $Client.Password
+
+        if (-not $Session) {
+            Write-Error "Failed to establish SSH session for Client: $($Client.ClientName). Skipping..."
+            continue
+        }
+
+        # OS Detection
+        Write-Output "Detecting operating system for Client: $($Client.ClientName)..."
+        if (Test-WindowsOperatingSystem -SSHSession $Session) {
+            Write-Output "Operating System: Windows. Proceeding with deployment..."
+            Deploy-WireGuardClient -Client $Client -SSHSession $Session
+            Write-Output "Client $($Client.ClientName) deployed successfully."
+        } else {
+            Write-Warning "Client $($Client.ClientName) is not a Windows system. Skipping..."
+        }
     } catch {
         Write-Error "Error deploying client $($Client.ClientName): $_"
+    } finally {
+        if ($Session -and $Session.SessionId) {
+            Write-Output "Closing SSH session for Client: $($Client.ClientName)..."
+            Remove-Session -SessionId $Session.SessionId
+        }
     }
 }
 
-Write-Output "`nWireGuard server and client deployment completed successfully."
+# Log Completion
+Write-Output "`n========================================="
+Write-Output "WireGuard Deployment Completed Successfully"
 Write-Output "Execution End Time: $(Get-Date -Format 'yyyy-MM-dd HH:mm:ss')"
-
-# Stop Transcript
+Write-Output "========================================="
 Stop-Transcript

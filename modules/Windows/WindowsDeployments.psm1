@@ -1,42 +1,6 @@
 # WindowsDeployments.psm1
 # PowerShell Module for Unified WireGuard Deployment on Windows Servers and Clients
 
-function Import-Configuration {
-    param ([string]$ConfigFilePath)
-    try {
-        if (Test-Path $ConfigFilePath) {
-            return Import-PowerShellDataFile -Path $ConfigFilePath
-        } else {
-            throw "Configuration file not found at $ConfigFilePath."
-        }
-    } catch {
-        Write-Host "Error: $_" -ForegroundColor Red
-        exit
-    }
-}
-
-function Establish-SSHConnection {
-    param (
-        [string]$IP,
-        [string]$Username,
-        [string]$Password
-    )
-    try {
-        $SecurePassword = ConvertTo-SecureString $Password -AsPlainText -Force
-        $Credential = New-Object PSCredential ($Username, $SecurePassword)
-
-        if (!(Get-Module -ListAvailable -Name Posh-SSH)) {
-            Install-Module -Name Posh-SSH -Force -Scope CurrentUser
-        }
-
-        Write-Host "Establishing SSH connection to $IP..." -ForegroundColor Cyan
-        return New-SSHSession -ComputerName $IP -Credential $Credential
-    } catch {
-        Write-Host "Failed to connect to ${IP}: $_" -ForegroundColor Red
-        return $null
-    }
-}
-
 function Check-WireGuardInstallation {
     param ($SSHSession)
     try {
@@ -99,21 +63,12 @@ function Start-WireGuardTunnel {
     }
 }
 
-function Remove-Session {
-    param ([int]$SessionId)
-    try {
-        Write-Host "Closing SSH session with ID: $SessionId..." -ForegroundColor Yellow
-        Remove-SSHSession -SessionId $SessionId
-        Write-Host "SSH session closed." -ForegroundColor Green
-        } catch {
-        Write-Host "Failed to close SSH session: $_" -ForegroundColor Red
-        }
-}
-
-
 function Deploy-WireGuardServer {
-    param ($Server)
-    Write-Host "`n--- Configuring WireGuard Server: $($Server.ServerName) ---`n" -ForegroundColor Green
+    param (
+        $Server,
+        $SSHSession
+    )
+    Write-Host "`n--- Deploying WireGuard Server: $($Server.ServerName) ---`n" -ForegroundColor Green
 
     $ServerConfigContent = @"
 [Interface]
@@ -126,28 +81,20 @@ PublicKey = $($Server.ServerPublicKey)
 AllowedIPs = $($Server.AllowedIPs)
 "@
 
-    try {
-        $ServerSession = Establish-SSHConnection -IP $Server.ServerIP -Username $Server.Username -Password $Server.Password
-        if (-not $ServerSession) { throw "Failed to establish SSH session." }
-
-        if (-not (Check-WireGuardInstallation -SSHSession $ServerSession)) {
-            Install-WireGuard -SSHSession $ServerSession
-        }
-        Configure-WireGuard -SSHSession $ServerSession -ConfigContent $ServerConfigContent
-        Start-WireGuardTunnel -SSHSession $ServerSession
-    } finally {
-        if ($ServerSession) {
-            Remove-Session -SessionId $ServerSession.SessionId
-            $ServerSession = $null
-        }
+    if (-not (Check-WireGuardInstallation -SSHSession $SSHSession)) {
+        Install-WireGuard -SSHSession $SSHSession
     }
+    Configure-WireGuard -SSHSession $SSHSession -ConfigContent $ServerConfigContent
+    Start-WireGuardTunnel -SSHSession $SSHSession
 }
 
 function Deploy-WireGuardClient {
-    param ($Client)
-    Write-Host "`n--- Configuring WireGuard Client: $($Client.ClientName) ---`n" -ForegroundColor Cyan
+    param (
+        $Client,
+        $SSHSession
+    )
+    Write-Host "`n--- Deploying WireGuard Client: $($Client.ClientName) ---`n" -ForegroundColor Cyan
 
-    $ClientSession = $null
     $ClientConfigContent = @"
 [Interface]
 PrivateKey = $($Client.ClientPrivateKey)
@@ -160,32 +107,11 @@ AllowedIPs = $($Client.AllowedIPs)
 PersistentKeepalive = 25
 "@
 
-    try {
-        $ClientSession = Establish-SSHConnection -IP $Client.ClientIP -Username $Client.Username -Password $Client.Password
-        if (-not $ClientSession) { throw "Failed to establish SSH session." }
-
-        if (-not (Check-WireGuardInstallation -SSHSession $ClientSession)) {
-            Install-WireGuard -SSHSession $ClientSession
-        }
-        Configure-WireGuard -SSHSession $ClientSession -ConfigContent $ClientConfigContent
-        Start-WireGuardTunnel -SSHSession $ClientSession
-    } finally {
-        # Safely close the session
-        if ($ClientSession -and $ClientSession.SessionId) {
-            Remove-Session -SessionId $ClientSession.SessionId
-        }
+    if (-not (Check-WireGuardInstallation -SSHSession $SSHSession)) {
+        Install-WireGuard -SSHSession $SSHSession
     }
+    Configure-WireGuard -SSHSession $SSHSession -ConfigContent $ClientConfigContent
+    Start-WireGuardTunnel -SSHSession $SSHSession
 }
 
-
-# Export all relevant functions
-Export-ModuleMember -Function `
-    Import-Configuration, `
-    Establish-SSHConnection, `
-    Check-WireGuardInstallation, `
-    Install-WireGuard, `
-    Configure-WireGuard, `
-    Start-WireGuardTunnel, `
-    Remove-Session, `
-    Deploy-WireGuardServer, `
-    Deploy-WireGuardClient
+Export-ModuleMember -Function Deploy-WireGuardServer, Deploy-WireGuardClient
