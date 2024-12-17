@@ -1,23 +1,48 @@
-function Test-WindowsOperatingSystem {
+# OSDetection.psm1
+function Test-OperatingSystem {
     param (
-        [object]$SSHSession
+        [Parameter(Mandatory)] [object]$SSHSession
     )
     try {
-        Write-Host "Checking if the remote system is Windows..." -ForegroundColor Cyan
-        $Command = 'powershell -Command "(Get-CimInstance Win32_OperatingSystem).Caption"'
-        $Result = Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $Command
+        Write-Host "Checking the remote system's operating system..." -ForegroundColor Cyan
 
-        if ($Result.Output -match "Windows") {
-            Write-Output "os=windows"
-            return $true
-        } else {
-            Write-Host "Remote system is not Windows." -ForegroundColor Yellow
-            return $false
+        # Test for Windows
+        $WindowsCommand = 'powershell -Command "(Get-CimInstance Win32_OperatingSystem).Caption"'
+        $WindowsResult = Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $WindowsCommand
+
+        # Clean up output and ensure it's a string
+        $CleanWindowsResult = [string]::Join("", $WindowsResult.Output).Trim()
+
+        Write-Host "Windows Command Result: '$CleanWindowsResult'" -ForegroundColor Yellow
+
+        if ($CleanWindowsResult -match "Windows") {
+            return "Windows"
         }
+
+        # Test for Linux
+        $LinuxCommand = 'uname -s'
+        $LinuxResult = Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $LinuxCommand
+
+        # Clean up output and ensure it's a string
+        $CleanLinuxResult = [string]::Join("", $LinuxResult.Output).Trim()
+
+        Write-Host "Linux Command Result: '$CleanLinuxResult'" -ForegroundColor Yellow
+
+        if ($CleanLinuxResult -match "Linux") {
+            return "Linux"
+        }
+
+        # If neither Windows nor Linux is detected
+        Write-Warning "Unable to detect the remote system's operating system. Returning 'Unknown'."
+        return "Unknown"
     } catch {
-        Write-Host "Failed to check the operating system: $_" -ForegroundColor Red
-        return $false
+        Write-Error "Error during OS detection: $_"
+        return "Unknown"
     }
 }
 
-Export-ModuleMember -Function Test-WindowsOperatingSystem
+
+
+
+
+Export-ModuleMember -Function Test-OperatingSystem
