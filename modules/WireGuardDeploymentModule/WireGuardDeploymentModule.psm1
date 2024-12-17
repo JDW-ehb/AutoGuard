@@ -83,9 +83,26 @@ function Check-WireGuardInstallation {
         [Parameter(Mandatory)] [string]$OS
     )
     Write-Host "Checking if WireGuard is installed..." -ForegroundColor Cyan
-    $Result = Invoke-CommandByOS -CommandKey "CheckInstallation" -OS $OS -SSHSession $SSHSession
-    return -not [string]::IsNullOrEmpty($Result.Output)
+    try {
+        if ($OS -eq "Windows") {
+            $Result = Invoke-CommandByOS -CommandKey "CheckInstallation" -OS $OS -SSHSession $SSHSession
+        }
+        elseif ($OS -eq "Linux") {
+            $CheckCommand = "which wg && which wg-quick"
+            $Result = Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $CheckCommand
+
+            if ($Result.ExitStatus -ne 0) {
+                Write-Error "WireGuard binaries not found: $($Result.Output)"
+                return $false
+            }
+        }
+        return -not [string]::IsNullOrEmpty($Result.Output)
+    } catch {
+        Write-Host "Failed to check WireGuard installation: $($_.Exception.Message)" -ForegroundColor Red
+        return $false
+    }
 }
+
 
 function Install-WireGuard {
     param (
@@ -93,8 +110,39 @@ function Install-WireGuard {
         [Parameter(Mandatory)] [string]$OS
     )
     Write-Host "Installing WireGuard..." -ForegroundColor Cyan
-    Invoke-CommandByOS -CommandKey "Install" -OS $OS -SSHSession $SSHSession
+    try {
+        if ($OS -eq "Windows") {
+            Invoke-CommandByOS -CommandKey "Install" -OS $OS -SSHSession $SSHSession
+        }
+        elseif ($OS -eq "Linux") {
+            # Use sudo without password prompt, capture stdout and stderr
+            $InstallCommand = @"
+sudo -n apt-get update -y && sudo -n apt-get install -y wireguard 2>&1
+"@
+            Write-Host "Running installation command: $InstallCommand" -ForegroundColor Yellow
+            $Result = Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $InstallCommand
+
+            # Log the full output for debugging
+            Write-Host "Install Command Output: $($Result.Output)" -ForegroundColor Cyan
+
+            if ($Result.ExitStatus -ne 0) {
+                Write-Error "WireGuard installation failed on Linux: $($Result.Output)"
+                exit
+            }
+            Write-Host "WireGuard installation completed successfully." -ForegroundColor Green
+        }
+        else {
+            Write-Error "Unsupported OS for installation: $OS"
+            exit
+        }
+    } catch {
+        Write-Host "Failed to install WireGuard: $($_.Exception.Message)" -ForegroundColor Red
+        exit
+    }
 }
+
+
+
 
 function Configure-WireGuard {
     param (
@@ -109,7 +157,7 @@ function Configure-WireGuard {
             # Ensure the directory exists on Windows
             Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command "New-Item -Path 'C:\ProgramData\WireGuard' -ItemType Directory -Force"
 
-            # Write the configuration file using a Here-String
+            # Write the configuration file
             $WriteConfigCommand = @"
 Set-Content -Path 'C:\ProgramData\WireGuard\wg0.conf' -Value @'
 $ConfigContent
@@ -119,15 +167,23 @@ $ConfigContent
         }
         elseif ($OS -eq "Linux") {
             # Ensure the directory exists on Linux
-            Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command "mkdir -p /etc/wireguard"
+            Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command "sudo mkdir -p /etc/wireguard"
 
-            # Write the configuration file using a Here-Document
+            # Write the configuration file and sanitize filename
             $WriteConfigCommand = @"
-cat <<EOF > /etc/wireguard/wg0.conf
-$ConfigContent
-EOF
+sudo bash -c 'echo "$ConfigContent" > /etc/wireguard/wg0.conf && dos2unix /etc/wireguard/wg0.conf'
 "@
-            Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $WriteConfigCommand
+            Write-Host "Running configuration command on Linux..." -ForegroundColor Yellow
+            $Result = Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $WriteConfigCommand
+
+            # Check for errors
+            if ($Result.ExitStatus -ne 0) {
+                Write-Error "Failed to write WireGuard configuration file: $($Result.Output)"
+                exit
+            }
+
+            # Set correct permissions
+            Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command "sudo chmod 600 /etc/wireguard/wg0.conf"
         }
         else {
             Write-Error "Unsupported operating system: $OS"
@@ -136,10 +192,11 @@ EOF
 
         Write-Host "Configuration file written successfully." -ForegroundColor Green
     } catch {
-        Write-Host "Failed to configure WireGuard: $_" -ForegroundColor Red
+        Write-Host "Failed to configure WireGuard: $($_.Exception.Message)" -ForegroundColor Red
         exit
     }
 }
+
 
 
 
@@ -149,8 +206,41 @@ function Start-WireGuardTunnel {
         [Parameter(Mandatory)] [string]$OS
     )
     Write-Host "Starting WireGuard tunnel..." -ForegroundColor Cyan
-    Invoke-CommandByOS -CommandKey "StartTunnel" -OS $OS -SSHSession $SSHSession
+    try {
+        if ($OS -eq "Windows") {
+            Invoke-CommandByOS -CommandKey "StartTunnel" -OS $OS -SSHSession $SSHSession
+        }
+        elseif ($OS -eq "Linux") {
+            # Verify the configuration file exists
+            $VerifyConfigCommand = "sudo test -f /etc/wireguard/wg0.conf && echo 'Config exists' || echo 'Config missing'"
+            $VerifyResult = Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $VerifyConfigCommand
+
+            if ($VerifyResult.Output -notmatch "Config exists") {
+                Write-Error "WireGuard configuration file missing on Linux client."
+                exit
+            }
+
+            # Start WireGuard tunnel with sudo
+            $StartCommand = "sudo wg-quick up wg0"
+            $StartResult = Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $StartCommand
+
+            Write-Host "Tunnel Start Output: $($StartResult.Output)" -ForegroundColor Yellow
+
+            if ($StartResult.ExitStatus -ne 0) {
+                Write-Error "Failed to start WireGuard tunnel: $($StartResult.Output)"
+                exit
+            }
+            Write-Host "WireGuard tunnel started successfully." -ForegroundColor Green
+        }
+        else {
+            Write-Error "Unsupported OS: $OS"
+        }
+    } catch {
+        Write-Host "Failed to start WireGuard tunnel: $($_.Exception.Message)" -ForegroundColor Red
+        exit
+    }
 }
+
 
 function Deploy-WireGuardServer {
     param (
@@ -178,7 +268,7 @@ ListenPort = $($Server.ListenPort)
 Address = $($Server.ServerAddress)
 
 [Peer]
-PublicKey = $($Server.ServerPublicKey)
+PublicKey = $($Client.ClientPublicKey)
 AllowedIPs = $($Server.AllowedIPs)
 "@
 
@@ -203,7 +293,7 @@ PrivateKey = $($Client.ClientPrivateKey)
 Address = $($Client.ClientAddress)
 
 [Peer]
-PublicKey = $($Client.ClientPublicKey)
+PublicKey = $($Server.ServerPublicKey)
 Endpoint = $($Client.ClientEndpoint)
 AllowedIPs = $($Client.AllowedIPs)
 PersistentKeepalive = 25
