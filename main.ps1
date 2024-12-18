@@ -38,41 +38,17 @@ try {
 # Update AllowedIPs once before deployment
 Update-AllowedIPs -Config $Config
 
-# Function to Deploy WireGuard based on OS
-function Deploy-WireGuard {
-    param (
-        [Parameter(Mandatory)] $Entity,    # Server or Client config
-        [Parameter(Mandatory)] $SSHSession,
-        [string]$EntityType = "Server"     # Server or Client
-    )
-    Write-Output "`n--- Starting deployment for ${EntityType}: $($Entity.Name) ---"
-
-    # Detect OS
-    $OS = Test-OperatingSystem -SSHSession $SSHSession
-    if (-not $OS) {
-        Write-Warning "Could not detect OS. Skipping ${EntityType}: $($Entity.Name)"
-        return
-    }
-
-    # Call appropriate deployment function
-    if ($EntityType -eq "Server") {
-        Deploy-WireGuardServer -Server $Entity -SSHSession $SSHSession -OS $OS
-    } elseif ($EntityType -eq "Client") {
-        Deploy-WireGuardClient -Client $Entity -SSHSession $SSHSession -OS $OS
-    }
-
-    Write-Output "$EntityType $($Entity.Name) deployed successfully."
-}
-
 # Deploy Servers
 foreach ($Server in $Config.ServerConfigs) {
     try {
+        Write-Output "`n--- Deploying Server: $($Server.ServerName) ---"
         $Session = Establish-SSHConnection -IP $Server.ServerIP -Username $Server.Username -Password $Server.Password
         if (-not $Session) {
             Write-Error "Failed to establish SSH session for Server: $($Server.ServerName). Skipping..."
             continue
         }
 
+        # Call the centralized deployment function from the module
         Deploy-WireGuard -Entity $Server -SSHSession $Session -EntityType "Server"
     } finally {
         if ($Session -and $Session.SessionId) {
@@ -84,12 +60,14 @@ foreach ($Server in $Config.ServerConfigs) {
 # Deploy Clients
 foreach ($Client in $Config.ClientConfigs) {
     try {
+        Write-Output "`n--- Deploying Client: $($Client.ClientName) ---"
         $Session = Establish-SSHConnection -IP $Client.ClientIP -Username $Client.Username -Password $Client.Password
         if (-not $Session) {
             Write-Error "Failed to establish SSH session for Client: $($Client.ClientName). Skipping..."
             continue
         }
 
+        # Call the centralized deployment function from the module
         Deploy-WireGuard -Entity $Client -SSHSession $Session -EntityType "Client"
     } finally {
         if ($Session -and $Session.SessionId) {

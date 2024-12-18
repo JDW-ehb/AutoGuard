@@ -1,5 +1,5 @@
-# WindowsDeployments.psm1
-# PowerShell Module for Unified WireGuard Deployment on Windows Servers and Clients
+# WireGuardDeployment.psm1
+
 # Hashtable for OS-Specific Commands
 $WireGuardCommands = @{
     "CheckInstallation" = @{
@@ -14,205 +14,127 @@ $WireGuardCommands = @{
         "Windows" = "Set-Content -Path 'C:\ProgramData\WireGuard\wg0.conf' -Value ""@CONTENT@"" -Force"
         "Linux"   = "sudo bash -c 'echo ""@CONTENT@"" > /etc/wireguard/wg0.conf && dos2unix /etc/wireguard/wg0.conf && chmod 600 /etc/wireguard/wg0.conf'"
     }
-
-    "VerifyConfig" = @{
-        "Windows" = "Test-Path 'C:\ProgramData\WireGuard\wg0.conf'"
-        "Linux"   = "sudo test -f /etc/wireguard/wg0.conf && echo 'Config exists' || echo 'Config missing'"
-    }
     "StartTunnel" = @{
         "Windows" = '& "C:\Program Files\WireGuard\wireguard.exe" /installtunnelservice "C:\ProgramData\WireGuard\wg0.conf"'
         "Linux"   = "sudo wg-quick up wg0"
-    }
-    "StopTunnel" = @{
-        "Windows" = '& "C:\Program Files\WireGuard\wireguard.exe" /uninstalltunnelservice "C:\ProgramData\WireGuard\wg0.conf"'
-        "Linux"   = "sudo wg-quick down wg0"
-    }
-    "RestartTunnel" = @{
-        "Windows" = '& "C:\Program Files\WireGuard\wireguard.exe" /uninstalltunnelservice "C:\ProgramData\WireGuard\wg0.conf"; Start-Sleep -Seconds 2; & "C:\Program Files\WireGuard\wireguard.exe" /installtunnelservice "C:\ProgramData\WireGuard\wg0.conf"'
-        "Linux"   = "sudo wg-quick down wg0 && sudo wg-quick up wg0"
     }
 }
 
 function Invoke-CommandByOS {
     param (
-        [Parameter(Mandatory)]
-        [string]$CommandKey,
-
-        [Parameter(Mandatory)]
-        [string]$OS,
-
-        [Parameter(Mandatory)]
-        $SSHSession,
-
+        [Parameter(Mandatory)] [string]$CommandKey,
+        [Parameter(Mandatory)] [string]$OS,
+        [Parameter(Mandatory)] $SSHSession,
         [string]$ConfigContent = $null
     )
     try {
-        # Fetch the command template
         $CommandTemplate = $WireGuardCommands[$CommandKey][$OS]
-
-        # Replace @CONTENT@ placeholder if applicable
-        if ($ConfigContent) {
-            $Command = $CommandTemplate -replace "@CONTENT@", $ConfigContent
-        } else {
-            $Command = $CommandTemplate
-        }
+        $Command = if ($ConfigContent) { $CommandTemplate -replace "@CONTENT@", $ConfigContent } else { $CommandTemplate }
 
         Write-Host "Executing Command: $Command" -ForegroundColor Yellow
         $Result = Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $Command
 
-        # Log both outputs
         Write-Host "Command Output: $($Result.Output)" -ForegroundColor Cyan
         Write-Host "Exit Status: $($Result.ExitStatus)" -ForegroundColor Cyan
 
-        # Check for failure explicitly
         if ($Result.ExitStatus -ne 0) {
-            Write-Error "Command '$CommandKey' failed with ExitStatus $($Result.ExitStatus): $($Result.Output)"
+            Write-Error "Command '$CommandKey' failed: $($Result.Output)"
             return $null
         }
 
         return $Result
     } catch {
-        Write-Warning "Command execution failed: $($_.Exception.Message)"
+        Write-Warning "Failed to execute command: $($_.Exception.Message)"
         return $null
     }
 }
 
-
-
-
 function Update-AllowedIPs {
-    param (
-        [Parameter(Mandatory)] $Config
-    )
+    param ([Parameter(Mandatory)] $Config)
 
-    Write-Host "`n--- Updating AllowedIPs for Servers and Clients ---` " -ForegroundColor Cyan
+    Write-Host "`n--- Updating AllowedIPs for Servers and Clients ---`n" -ForegroundColor Cyan
 
     $AllClientAddresses = $Config.ClientConfigs | ForEach-Object { $_.ClientAddress }
     $AllServerAddresses = $Config.ServerConfigs | ForEach-Object { $_.ServerAddress }
 
-    foreach ($Server in $Config.ServerConfigs) {
-        $Server.AllowedIPs = $AllClientAddresses -join ", "
-    }
-    foreach ($Client in $Config.ClientConfigs) {
-        $Client.AllowedIPs = $AllServerAddresses -join ", "
-    }
+    foreach ($Server in $Config.ServerConfigs) { $Server.AllowedIPs = $AllClientAddresses -join ", " }
+    foreach ($Client in $Config.ClientConfigs) { $Client.AllowedIPs = $AllServerAddresses -join ", " }
 
     Write-Output "AllowedIPs updated successfully for all servers and clients."
 }
 
 function Check-WireGuardInstallation {
-    param (
-        [Parameter(Mandatory)] $SSHSession,
-        [Parameter(Mandatory)] [string]$OS
-    )
+    param ([Parameter(Mandatory)] $SSHSession, [Parameter(Mandatory)] [string]$OS)
     Write-Host "Checking if WireGuard is installed..." -ForegroundColor Cyan
-    try {
-        Invoke-CommandByOS -CommandKey "CheckInstallation" -OS $OS -SSHSession $SSHSession
-    } catch {
-        Write-Host "Failed to check WireGuard installation: $($_.Exception.Message)" -ForegroundColor Red
-        return $false
-    }
+    return Invoke-CommandByOS -CommandKey "CheckInstallation" -OS $OS -SSHSession $SSHSession
 }
 
 function Install-WireGuard {
-    param (
-        [Parameter(Mandatory)] $SSHSession,
-        [Parameter(Mandatory)] [string]$OS
-    )
-
+    param ([Parameter(Mandatory)] $SSHSession, [Parameter(Mandatory)] [string]$OS)
     Write-Host "Installing WireGuard on $OS..." -ForegroundColor Cyan
-    try {
-        # Invoke installation command based on OS
-        $Result = Invoke-CommandByOS -CommandKey "Install" -OS $OS -SSHSession $SSHSession
-
-        # Log the full output for debugging
-        Write-Host "Install Command Output: $($Result.Output)" -ForegroundColor Cyan
-
-        # Check if the installation command executed successfully
-        if (-not $Result -or $Result.ExitStatus -ne 0) {
-            Write-Error "WireGuard installation failed on $OS. Output: $($Result.Output)"
-            exit
-        }
-
-        Write-Host "WireGuard installation completed successfully on $OS." -ForegroundColor Green
-    } catch {
-        Write-Host "Failed to install WireGuard on ${OS}: $($_.Exception.Message)" -ForegroundColor Red
-        exit
-    }
+    Invoke-CommandByOS -CommandKey "Install" -OS $OS -SSHSession $SSHSession
+    Write-Host "WireGuard installation completed successfully." -ForegroundColor Green
 }
 
 function Configure-WireGuard {
-    param (
-        [Parameter(Mandatory)] $SSHSession,
-        [Parameter(Mandatory)] [string]$OS,
-        [Parameter(Mandatory)] [string]$ConfigContent
-    )
+    param ([Parameter(Mandatory)] $SSHSession, [Parameter(Mandatory)] [string]$OS, [Parameter(Mandatory)] [string]$ConfigContent)
     Write-Host "Writing WireGuard configuration..." -ForegroundColor Cyan
     Invoke-CommandByOS -CommandKey "WriteConfig" -OS $OS -SSHSession $SSHSession -ConfigContent $ConfigContent
-    Write-Host "Configuration file written successfully." -ForegroundColor Green
 }
 
 function Start-WireGuardTunnel {
-    param (
-        [Parameter(Mandatory)] $SSHSession,
-        [Parameter(Mandatory)] [string]$OS
-    )
+    param ([Parameter(Mandatory)] $SSHSession, [Parameter(Mandatory)] [string]$OS)
     Write-Host "Starting WireGuard tunnel..." -ForegroundColor Cyan
     Invoke-CommandByOS -CommandKey "StartTunnel" -OS $OS -SSHSession $SSHSession
-    Write-Host "WireGuard tunnel started successfully." -ForegroundColor Green
 }
 
-function Deploy-WireGuardServer {
+function Deploy-WireGuard {
     param (
-        $Server,
-        $SSHSession,
-        [Parameter(Mandatory)] [string]$OS
+        [Parameter(Mandatory)] $Entity,    # Server or Client config
+        [Parameter(Mandatory)] $SSHSession,
+        [string]$EntityType = "Server"     # Server or Client
     )
-    Write-Host "`n--- Deploying WireGuard Server: $($Server.ServerName) ---`n" -ForegroundColor Green
+    Write-Host "`n--- Starting deployment for ${EntityType}: $($Entity.Name) ---`n" -ForegroundColor Cyan
 
-    $ServerConfigContent = @"
-[Interface]
-PrivateKey = $($Server.ServerPrivateKey)
-ListenPort = $($Server.ListenPort)
-Address = $($Server.ServerAddress)
-
-[Peer]
-PublicKey = $($Client.ClientPublicKey)
-AllowedIPs = $($Server.AllowedIPs)
-"@
-
-    if (-not (Check-WireGuardInstallation -SSHSession $SSHSession -OS $OS)) {
-        Install-WireGuard -SSHSession $SSHSession -OS $OS
+    $OS = Test-OperatingSystem -SSHSession $SSHSession
+    if (-not $OS) {
+        Write-Warning "Could not detect OS. Skipping ${EntityType}: $($Entity.Name)"
+        return
     }
-    Configure-WireGuard -SSHSession $SSHSession -OS $OS -ConfigContent $ServerConfigContent
-    Start-WireGuardTunnel -SSHSession $SSHSession -OS $OS
-}
 
-function Deploy-WireGuardClient {
-    param (
-        $Client,
-        $SSHSession,
-        [Parameter(Mandatory)] [string]$OS
-    )
-    Write-Host "`n--- Deploying WireGuard Client: $($Client.ClientName) ---`n" -ForegroundColor Cyan
-
-    $ClientConfigContent = @"
+    # Configuration for Server or Client
+    $ConfigContent = if ($EntityType -eq "Server") {
+        @"
 [Interface]
-PrivateKey = $($Client.ClientPrivateKey)
-Address = $($Client.ClientAddress)
+PrivateKey = $($Entity.ServerPrivateKey)
+ListenPort = $($Entity.ListenPort)
+Address = $($Entity.ServerAddress)
 
 [Peer]
-PublicKey = $($Server.ServerPublicKey)
-Endpoint = $($Client.ClientEndpoint)
-AllowedIPs = $($Client.AllowedIPs)
+PublicKey = $($Entity.ServerPublicKey)
+AllowedIPs = $($Entity.AllowedIPs)
+"@
+    } elseif ($EntityType -eq "Client") {
+        @"
+[Interface]
+PrivateKey = $($Entity.ClientPrivateKey)
+Address = $($Entity.ClientAddress)
+
+[Peer]
+PublicKey = $($Entity.ClientPublicKey)
+Endpoint = $($Entity.ClientEndpoint)
+AllowedIPs = $($Entity.AllowedIPs)
 PersistentKeepalive = 25
 "@
+    }
 
     if (-not (Check-WireGuardInstallation -SSHSession $SSHSession -OS $OS)) {
         Install-WireGuard -SSHSession $SSHSession -OS $OS
     }
-    Configure-WireGuard -SSHSession $SSHSession -OS $OS -ConfigContent $ClientConfigContent
+
+    Configure-WireGuard -SSHSession $SSHSession -OS $OS -ConfigContent $ConfigContent
     Start-WireGuardTunnel -SSHSession $SSHSession -OS $OS
+    Write-Output "${EntityType} $($Entity.Name) deployed successfully."
 }
 
-Export-ModuleMember -Function Update-AllowedIPs, Deploy-WireGuardServer, Deploy-WireGuardClient
+Export-ModuleMember -Function Update-AllowedIPs, Deploy-WireGuard, Deploy-WireGuardServer, Deploy-WireGuardClient
