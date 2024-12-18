@@ -1,6 +1,6 @@
 # WindowsDeployments.psm1
 # PowerShell Module for Unified WireGuard Deployment on Windows Servers and Clients
-
+#addincommandtoverifyinstallation
 # Hashtable for OS-Specific Commands
 $WireGuardCommands = @{
     "CheckInstallation" = @{
