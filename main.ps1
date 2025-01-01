@@ -16,9 +16,7 @@ Write-Output "========================================="
 
 # Import Modules
 try {
-    Import-Module -Name ".\modules\SSH-Session\SSH-Session.psm1" -Force
     Import-Module -Name ".\modules\WireGuardDeploymentModule\WireGuardDeploymentModule.psm1" -Force
-    Import-Module -Name ".\modules\OSDetection\OSDetection.psm1" -Force
     Write-Output "Modules successfully imported."
 } catch {
     Write-Error "Failed to import modules: $_"
@@ -42,7 +40,7 @@ Update-AllowedIPs -Config $Config
 foreach ($Server in $Config.ServerConfigs) {
     try {
         Write-Output "`n--- Deploying Server: $($Server.ServerName) ---"
-        $Session = Establish-SSHConnection -IP $Server.ServerIP -Username $Server.Username -Password $Server.Password
+        $Session = Establish-SSHConnection -IP $Server.ServerIP -Username $Server.Username -KeyPath "$HOME\.ssh\id_rsa"
         if (-not $Session) {
             Write-Error "Failed to establish SSH session for Server: $($Server.ServerName). Skipping..."
             continue
@@ -61,7 +59,7 @@ foreach ($Server in $Config.ServerConfigs) {
 foreach ($Client in $Config.ClientConfigs) {
     try {
         Write-Output "`n--- Deploying Client: $($Client.ClientName) ---"
-        $Session = Establish-SSHConnection -IP $Client.ClientIP -Username $Client.Username -Password $Client.Password
+        $Session = Establish-SSHConnection -IP $Client.ClientIP -Username $Client.Username -KeyPath "$HOME\.ssh\id_rsa"
         if (-not $Session) {
             Write-Error "Failed to establish SSH session for Client: $($Client.ClientName). Skipping..."
             continue

@@ -12,11 +12,104 @@ $WireGuardCommands = @{
     }
     "WriteConfig" = @{
         "Windows" = "Set-Content -Path 'C:\ProgramData\WireGuard\wg0.conf' -Value ""@CONTENT@"" -Force"
-        "Linux"   = "sudo bash -c 'echo ""@CONTENT@"" > /etc/wireguard/wg0.conf && dos2unix /etc/wireguard/wg0.conf && chmod 600 /etc/wireguard/wg0.conf'"
+        "Linux"   = "sudo bash -c 'echo ""@CONTENT@"" > /etc/wireguard/wg0.conf && chmod 600 /etc/wireguard/wg0.conf'"
     }
     "StartTunnel" = @{
         "Windows" = '& "C:\Program Files\WireGuard\wireguard.exe" /installtunnelservice "C:\ProgramData\WireGuard\wg0.conf"'
         "Linux"   = "sudo wg-quick up wg0"
+    }
+}
+
+function Establish-SSHConnection {
+    param (
+        [Parameter(Mandatory)] [string]$IP,
+        [Parameter(Mandatory)] [string]$Username,
+        [string]$KeyPath = "$HOME\.ssh\id_rsa"  # Default path to the private key
+    )
+    try {
+        # Ensure Posh-SSH module is installed
+        if (!(Get-Module -ListAvailable -Name Posh-SSH)) {
+            Install-Module -Name Posh-SSH -Force -Scope CurrentUser
+        }
+
+        # Check if the key exists
+        if (-not (Test-Path -Path $KeyPath)) {
+            throw "SSH private key not found at $KeyPath"
+        }
+
+        Write-Host "Establishing SSH connection to $IP using key $KeyPath..." -ForegroundColor Cyan
+
+        # Create a credential object with the username
+        $Credential = New-Object -TypeName PSCredential -ArgumentList $Username, (ConvertTo-SecureString -String 'dummy' -AsPlainText -Force)
+
+        # Establish the SSH session using the key
+        $Session = New-SSHSession -ComputerName $IP -KeyFile $KeyPath -Credential $Credential
+
+        if (-not $Session) {
+            throw "SSH connection failed to $IP"
+        }
+
+        Write-Host "SSH connection to $IP established successfully." -ForegroundColor Green
+        return $Session
+    } catch {
+        Write-Host "Failed to connect to ${IP}: $_" -ForegroundColor Red
+        return $null
+    }
+}
+
+
+
+
+function Remove-Session {
+    param ([int]$SessionId)
+    try {
+        Write-Host "Closing SSH session with ID: $SessionId..." -ForegroundColor Yellow
+        Remove-SSHSession -SessionId $SessionId
+        Write-Host "SSH session closed." -ForegroundColor Green
+    } catch {
+        Write-Host "Failed to close SSH session: $_" -ForegroundColor Red
+    }
+}
+
+function Test-OperatingSystem {
+    param (
+        [Parameter(Mandatory)] [object]$SSHSession
+    )
+    try {
+        Write-Host "Checking the remote system's operating system..." -ForegroundColor Cyan
+
+        # Test for Windows
+        $WindowsCommand = 'powershell -Command "(Get-CimInstance Win32_OperatingSystem).Caption"'
+        $WindowsResult = Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $WindowsCommand
+
+        # Clean up output and ensure it's a string
+        $CleanWindowsResult = [string]::Join("", $WindowsResult.Output).Trim()
+
+        Write-Host "Windows Command Result: '$CleanWindowsResult'" -ForegroundColor Yellow
+
+        if ($CleanWindowsResult -match "Windows") {
+            return "Windows"
+        }
+
+        # Test for Linux
+        $LinuxCommand = 'uname -s'
+        $LinuxResult = Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $LinuxCommand
+
+        # Clean up output and ensure it's a string
+        $CleanLinuxResult = [string]::Join("", $LinuxResult.Output).Trim()
+
+        Write-Host "Linux Command Result: '$CleanLinuxResult'" -ForegroundColor Yellow
+
+        if ($CleanLinuxResult -match "Linux") {
+            return "Linux"
+        }
+
+        # If neither Windows nor Linux is detected
+        Write-Warning "Unable to detect the remote system's operating system. Returning 'Unknown'."
+        return "Unknown"
+    } catch {
+        Write-Error "Error during OS detection: $_"
+        return "Unknown"
     }
 }
 
@@ -137,4 +230,4 @@ PersistentKeepalive = 25
     Write-Output "${EntityType} $($Entity.Name) deployed successfully."
 }
 
-Export-ModuleMember -Function Update-AllowedIPs, Deploy-WireGuard, Deploy-WireGuardServer, Deploy-WireGuardClient
+Export-ModuleMember -Function Update-AllowedIPs, Deploy-WireGuard, Deploy-WireGuardServer, Deploy-WireGuardClient, Establish-SSHConnection, Remove-Session, Test-OperatingSystem
