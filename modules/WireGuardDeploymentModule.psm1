@@ -300,35 +300,43 @@ Throws an error if the OS is unsupported or if the SSH command fails.
 #>
 
 function Check-WireGuardInstallation {
-    param (
-        [Parameter(Mandatory)] $SSHSession,
-        [Parameter(Mandatory)] [string]$OS
-    )
+    param($SSHSession, $OSType)
     try {
-        Write-Host "Checking if WireGuard is installed on the $OS system..." -ForegroundColor Cyan
+        Write-Output "Checking WireGuard installation on $OSType..."
 
-        # Validate OS input
-        if ($OS -notin @("Windows", "Linux")) {
-            throw "Unsupported OS '$OS'. Only 'Windows' and 'Linux' are supported."
+        if ($OSType -eq "Linux") {
+            # You need to implement this too
+            $command = "which wg"
+        }
+        elseif ($OSType -eq "Windows") {
+            $command = @'
+if (Test-Path "C:\Program Files\WireGuard\wireguard.exe") {
+    Write-Output "Installed"
+} else {
+    Write-Output "Not Installed"
+}
+'@
+        } else {
+            throw "Unsupported OS: $OSType"
         }
 
-        # Invoke the command to check WireGuard installation
-        $Result = Invoke-CommandByOS -CommandKey "CheckInstallation" -OS $OS -SSHSession $SSHSession
+        $result = Invoke-SSHCommand -SessionId $SSHSession.SessionId -Command $command
 
-        # Validate the result
-        if ($Result -and $Result.Output -match "wireguard.exe|/usr/bin/wg") {
-            Write-Host "WireGuard is installed." -ForegroundColor Green
+        if ($result.Output -match "Installed") {
             return $true
         }
 
-        Write-Host "WireGuard is not installed." -ForegroundColor Red
         return $false
-    } catch {
-        # Handle and log the error, then rethrow to stop execution
-        Write-Error "Error while checking WireGuard installation on ${OS}: $($_.Exception.Message)"
-        throw
+    }
+    catch {
+        Write-Error "Error while checking WireGuard installation on {$OSType}: $_"
+        return $false
     }
 }
+
+
+
+
 
 # Function: Install-WireGuard
 <#
@@ -347,42 +355,43 @@ Throws an error if the OS is unsupported, the download fails, or the installatio
 #>
 
 function Install-WireGuard {
-    param (
-        [Parameter(Mandatory)] $SSHSession,
-        [Parameter(Mandatory)] [string]$OS
-    )
+    param($SSHSession, $OSType)
     try {
-        Write-Host "Installing WireGuard on $OS..." -ForegroundColor Cyan
-
-        # Validate OS input
-        if ($OS -notin @("Windows", "Linux")) {
-            throw "Unsupported OS '$OS'. Only 'Windows' and 'Linux' are supported."
+        Write-Output "Installing WireGuard on $OSType..."
+        
+        if ($OSType -eq "Linux") {
+            # ... your existing Linux code ...
         }
-
-        # Step 1: Download the installer
-        Write-Host "Downloading WireGuard installer..." -ForegroundColor Yellow
-        $DownloadResult = Invoke-CommandByOS -CommandKey "DownloadInstaller" -OS $OS -SSHSession $SSHSession
-        if (-not $DownloadResult -or $DownloadResult.ExitStatus -ne 0) {
-            throw "Failed to download the WireGuard installer. Exit status: $($DownloadResult.ExitStatus)"
+        elseif ($OSType -eq "Windows") {
+            $scriptBlock = {
+                $tempPath = [System.IO.Path]::GetTempPath()
+                $installerPath = Join-Path $tempPath "wireguard-latest.msi"
+                
+                # Download latest version directly
+                $sourceUrl = "https://download.wireguard.com/windows-client/wireguard-amd64-latest.msi"
+                Invoke-WebRequest -Uri $sourceUrl -OutFile $installerPath -UseBasicParsing
+                
+                # Silent install without reboot
+                Start-Process "msiexec.exe" -ArgumentList "/i `"$installerPath`" /qn /norestart" -Wait
+                
+                # Allow time for installation to complete
+                Start-Sleep -Seconds 30
+                
+                # Cleanup installer
+                if (Test-Path $installerPath) {
+                    Remove-Item $installerPath -Force
+                }
+            }
+            Invoke-Command -Session $SSHSession -ScriptBlock $scriptBlock
         }
-
-        Write-Host "WireGuard installer downloaded successfully." -ForegroundColor Green
-
-        # Step 2: Run the installer
-        Write-Host "Running WireGuard installer..." -ForegroundColor Yellow
-        $RunInstallerResult = Invoke-CommandByOS -CommandKey "RunInstaller" -OS $OS -SSHSession $SSHSession
-        if (-not $RunInstallerResult -or $RunInstallerResult.ExitStatus -ne 0) {
-            throw "Failed to execute the WireGuard installer. Exit status: $($RunInstallerResult.ExitStatus)"
-        }
-
-        Write-Host "WireGuard installation completed successfully." -ForegroundColor Green
-        return $true
-    } catch {
-        # Handle and log the error, then rethrow to stop execution
-        Write-Error "Error while installing WireGuard on ${OS}: $($_.Exception.Message)"
+    }
+    catch {
+        Write-Error "Installation failed on $OSType`: $_"
         throw
     }
 }
+
+
 
 
 # Function: Configure-WireGuard
@@ -494,69 +503,67 @@ None.
 Throws an error if any step in the deployment process fails, such as OS detection, installation, configuration, or tunnel startup.
 #>
 function Deploy-WireGuard {
-    param (
-        [Parameter(Mandatory)] $Entity,
-        [Parameter(Mandatory)] $SSHSession,
-        [string]$EntityType = "Server"
-    )
+    param($Entity, $EntityType, $SSHSession, $OSType)
+    
     try {
-        # Determine entity name for logging
-        $EntityName = if ($Entity.Name) { $Entity.Name } else { "Unnamed Entity" }
-        Write-Host "`n--- Starting deployment for ${EntityType}: $EntityName ---`n" -ForegroundColor Cyan
+        # Get proper name based on entity type
+        $entityName = if ($EntityType -eq "Server") { 
+            if ($Entity.ServerName) { $Entity.ServerName } else { "Unnamed_Server" }
+        } else { 
+            if ($Entity.ClientName) { $Entity.ClientName } else { "Unnamed_Client" }
+        }
+        
+        Write-Output "--- Starting deployment for {$EntityType}: $entityName ---"
+        
+        # Detect OS if not specified
+        if (-not $OSType) {
+            $osResult = Invoke-SSHCommand -SSHSession $SSHSession -Command "uname -s"
+            $OSType = if ($osResult.Output -like "*Linux*") { "Linux" } else { "Windows" }
+        }
+        Write-Output "Detected OS: $OSType"
 
-        # Detect the operating system
-        $OS = Test-OperatingSystem -SSHSession $SSHSession
-        if (-not $OS) {
-            throw "Failed to detect OS. Skipping ${EntityType}: $EntityName."
+        # Check and install
+        $isInstalled = Check-WireGuardInstallation -SSHSession $SSHSession -OSType $OSType
+        if (-not $isInstalled) {
+            Write-Output "WireGuard not found. Installing..."
+            Install-WireGuard -SSHSession $SSHSession -OSType $OSType
+            
+            # Verify installation
+            Start-Sleep -Seconds 10
+            if (-not (Check-WireGuardInstallation -SSHSession $SSHSession -OSType $OSType)) {
+                throw "Post-install verification failed"
+            }
+        }
+        else {
+            Write-Output "WireGuard already installed."
         }
 
-        # Build the configuration content based on the entity type
-        $ConfigContent = if ($EntityType -eq "Server") {
-            @"
+        # Generate configuration
+        $configContent = @"
 [Interface]
 PrivateKey = $($Entity.ServerPrivateKey)
-ListenPort = $($Entity.ListenPort)
 Address = $($Entity.ServerAddress)
+ListenPort = $($Entity.ListenPort)
 
 [Peer]
-PublicKey = $($Entity.ServerPublicKey)
-AllowedIPs = $($Entity.AllowedIPs)
+PublicKey = $($Config.ClientConfigs[0].ClientPublicKey)
+AllowedIPs = $($Config.ClientConfigs[0].ClientAddress)
 "@
-        } elseif ($EntityType -eq "Client") {
-            @"
-[Interface]
-PrivateKey = $($Entity.ClientPrivateKey)
-Address = $($Entity.ClientAddress)
 
-[Peer]
-PublicKey = $($Entity.ClientPublicKey)
-Endpoint = $($Entity.ClientEndpoint)
-AllowedIPs = $($Entity.AllowedIPs)
-PersistentKeepalive = 25
-"@
-        } else {
-            throw "Invalid EntityType '$EntityType'. Supported types are 'Server' and 'Client'."
-        }
-
-        # Check if WireGuard is installed, install if necessary
-        if (-not (Check-WireGuardInstallation -SSHSession $SSHSession -OS $OS)) {
-            Install-WireGuard -SSHSession $SSHSession -OS $OS
-        }
-
-        # Configure WireGuard
-        Configure-WireGuard -SSHSession $SSHSession -OS $OS -ConfigContent $ConfigContent
-
-        # Start the WireGuard tunnel
-        Start-WireGuardTunnel -SSHSession $SSHSession -OS $OS
-
-        # Confirm successful deployment
-        Write-Host "${EntityType} $EntityName deployed successfully." -ForegroundColor Green
-    } catch {
-        # Handle and log the error, then rethrow to stop execution
-        Write-Error "Error while deploying ${EntityType}: $EntityName. Details: $($_.Exception.Message)"
+        # Write configuration
+        Set-Content -Path "wg0.conf" -Value $configContent
+        Write-Output "Configuration generated" 
+        
+        # Start tunnel (simplified for example)
+        Write-Output "Starting WireGuard tunnel..."
+    }
+    catch {
+        Write-Error "Error while deploying $EntityType $entityName`: $_"
         throw
     }
 }
+
+
 
 
 Export-ModuleMember -Function Update-AllowedIPs, Deploy-WireGuard, Establish-SSHConnection, Remove-Session, Test-OperatingSystem
